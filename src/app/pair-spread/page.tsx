@@ -1,8 +1,9 @@
+
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import SpreadChart from "@/components/SpreadChart";
-import { ArrowRight, Activity, Calendar, Search } from "lucide-react";
+import { ArrowRight, Activity, Calendar, Search, RefreshCw, Minus, Plus } from "lucide-react";
 
 export default function PairSpreadPage() {
   const [stock1, setStock1] = useState("TCS");
@@ -10,14 +11,16 @@ export default function PairSpreadPage() {
   const [startDate, setStartDate] = useState("2025-07-01");
   const [endDate, setEndDate] = useState("2026-01-01");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [apiResult, setApiResult] = useState<any>(null);
+  const [customFactor, setCustomFactor] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
-    setResult(null);
+    setApiResult(null);
+    setCustomFactor(null);
 
     try {
       const res = await fetch("/api/analyze", {
@@ -32,11 +35,50 @@ export default function PairSpreadPage() {
         throw new Error(data.error || "Failed to fetch data");
       }
 
-      setResult(data);
+      setApiResult(data);
+      setCustomFactor(data.scalingFactor); // Initialize with calculated factor
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Recalculate spread on client side when factor changes
+  const spreadChartData = useMemo(() => {
+    if (!apiResult || customFactor === null) return null;
+
+    return apiResult.alignedData.map((item: any) => {
+      const { date, d1, d2 } = item;
+      const s2_open = d2.open;
+      const s2_close = d2.close;
+      const s1_open = d1.open;
+      const s1_close = d1.close;
+
+      const spread_open = (s2_open * customFactor) - s1_open;
+      const spread_close = (s2_close * customFactor) - s1_close;
+
+      const spread_high = Math.max(spread_open, spread_close);
+      const spread_low = Math.min(spread_open, spread_close);
+
+      return {
+        date,
+        open: spread_open,
+        close: spread_close,
+        high: spread_high,
+        low: spread_low
+      };
+    });
+  }, [apiResult, customFactor]);
+
+  const adjustFactor = (delta: number) => {
+    if (customFactor === null) return;
+    setCustomFactor(prev => Number((prev! + delta).toFixed(4)));
+  };
+
+  const resetFactor = () => {
+    if (apiResult) {
+      setCustomFactor(apiResult.scalingFactor);
     }
   };
 
@@ -61,8 +103,8 @@ export default function PairSpreadPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           {/* Controls Panel */}
-          <div className="lg:col-span-1">
-            <div className="glass-panel p-6 rounded-2xl sticky top-8">
+          <div className="lg:col-span-1 border-r border-white/10 pr-6 lg:pr-8 space-y-8">
+            <div className="glass-panel p-6 rounded-2xl space-y-6">
               <form onSubmit={handleAnalyze} className="space-y-6">
 
                 <div className="space-y-2">
@@ -131,20 +173,6 @@ export default function PairSpreadPage() {
                 </button>
               </form>
 
-              {result && (
-                <div className="mt-8 pt-6 border-t border-white/10 space-y-4">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-400">Scaling Factor</span>
-                    <span className="text-[#00ff88] font-mono font-bold text-lg">
-                      {result.scalingFactor.toFixed(4)}x
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Calculated via {result.ticker2} / {result.ticker1} volatility ratio.
-                  </p>
-                </div>
-              )}
-
               {error && (
                 <div className="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
                   {error}
@@ -152,14 +180,58 @@ export default function PairSpreadPage() {
               )}
 
             </div>
+
+            {/* Interactive Scaling Controls */}
+            {apiResult && customFactor !== null && (
+              <div className="glass-panel p-6 rounded-2xl space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-xs text-[#00ff88] uppercase font-bold tracking-wider">Scaling Factor</label>
+                  <button onClick={resetFactor} className="text-[10px] text-gray-400 hover:text-white flex items-center gap-1 bg-white/5 px-2 py-1 rounded transition-colors">
+                    <RefreshCw className="w-3 h-3" /> Reset
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <button
+                    onClick={() => adjustFactor(-0.01)}
+                    className="p-3 bg-white/5 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors border border-white/5"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+
+                  <div className="flex-1 text-center">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={customFactor}
+                      onChange={(e) => setCustomFactor(parseFloat(e.target.value))}
+                      className="w-full bg-transparent text-2xl font-mono font-bold text-center text-white focus:outline-none"
+                    />
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Active Multiplier</p>
+                  </div>
+
+                  <button
+                    onClick={() => adjustFactor(0.01)}
+                    className="p-3 bg-white/5 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors border border-white/5"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 text-center">
+                  <p className="text-xs text-gray-500 mb-1">Calculated Suggestion</p>
+                  <p className="font-mono text-sm text-gray-300">{apiResult.scalingFactor.toFixed(4)}x</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Chart Area */}
           <div className="lg:col-span-3 min-h-[500px]">
-            {result ? (
+            {spreadChartData ? (
               <SpreadChart
-                data={result.spreadData}
-                title={`Spread Analysis: (${result.ticker2} × ${result.scalingFactor.toFixed(2)}) - ${result.ticker1}`}
+                data={spreadChartData}
+                title={`Spread Analysis: (${apiResult.ticker2} × ${customFactor?.toFixed(2)}) - ${apiResult.ticker1} `}
                 meta={{
                   stock1: stock1,
                   stock2: stock2,

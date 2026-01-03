@@ -106,7 +106,8 @@ export async function POST(request: Request) {
 
         return NextResponse.json({
             scalingFactor,
-            spreadData,
+            // Return raw aligned data for client-side recalculation
+            alignedData,
             ticker1: s1,
             ticker2: s2
         });
