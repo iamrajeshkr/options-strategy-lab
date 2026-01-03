@@ -66,12 +66,16 @@ function ChartContent() {
 
     return (
         <div className="w-full h-screen bg-black p-4">
-            {result && (
+            {result && result.spreadData ? (
                 <SpreadChart
                     data={result.spreadData}
                     title={`Spread: (${result.ticker2} × ${result.scalingFactor.toFixed(2)}) - ${result.ticker1}`}
                 />
-            )}
+            ) : result ? (
+                <div className="w-full h-full flex items-center justify-center text-gray-500">
+                    <p>Data format mismatch. Please wait for the deployment to finish or refresh.</p>
+                </div>
+            ) : null}
         </div>
     );
 }
