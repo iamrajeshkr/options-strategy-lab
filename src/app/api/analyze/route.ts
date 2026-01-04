@@ -5,7 +5,7 @@ const yahooFinance = new YahooFinance();
 
 export async function POST(request: Request) {
     try {
-        const { stock1, stock2, startDate, endDate } = await request.json();
+        const { stock1, stock2, startDate, endDate, interval = '1d' } = await request.json();
 
         if (!stock1 || !stock2 || !startDate || !endDate) {
             return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
@@ -24,28 +24,52 @@ export async function POST(request: Request) {
         const s2 = normalizeTicker(stock2);
 
         // Fetch data
-        const queryOptions = { period1: startDate, period2: endDate };
+        // interval type needed for yahoo-finance2
+        const queryOptions: any = { period1: startDate, period2: endDate, interval: interval };
 
-        // Using historical data
-        // yahoo-finance2 returns array of objects { date, open, high, low, close, adjClose, volume }
-        const [data1, data2] = await Promise.all([
-            yahooFinance.historical(s1, queryOptions),
-            yahooFinance.historical(s2, queryOptions)
-        ]) as [any[], any[]];
+        // Using chart data instead of historical because historical doesn't support 1h
+        // yahooFinance.chart returns { meta, quotes: [...] }
+        const [result1, result2] = await Promise.all([
+            yahooFinance.chart(s1, queryOptions),
+            yahooFinance.chart(s2, queryOptions)
+        ]) as [any, any];
 
-        if (!data1.length || !data2.length) {
+        const data1 = result1.quotes;
+        const data2 = result2.quotes;
+
+        if (!data1 || !data1.length || !data2 || !data2.length) {
             return NextResponse.json({ error: 'No data found for one or both tickers' }, { status: 404 });
         }
 
         // Process and Align Data
+        // Helper to get key based on interval
+        const getKey = (date: Date) => {
+            if (interval === '1d') {
+                return date.toISOString().split('T')[0];
+            }
+            // For intraday, use full ISO string but maybe trim milliseconds if needed?
+            // Usually exact matches are fine if from same source.
+            return date.toISOString();
+        };
+
+        // Define simple interface for what we expect in quotes
+        interface Quote {
+            date: Date;
+            open: number;
+            high: number;
+            low: number;
+            close: number;
+            volume: number;
+        }
+
         // Create map for O(1) lookup
-        const map1 = new Map(data1.map(d => [d.date.toISOString().split('T')[0], d]));
-        const map2 = new Map(data2.map(d => [d.date.toISOString().split('T')[0], d]));
+        const map1 = new Map<string, Quote>(data1.map((d: Quote) => [getKey(d.date), d]));
+        const map2 = new Map<string, Quote>(data2.map((d: Quote) => [getKey(d.date), d]));
 
         // Find intersection of dates
         const commonDates = data1
-            .map(d => d.date.toISOString().split('T')[0])
-            .filter(date => map2.has(date))
+            .map((d: Quote) => getKey(d.date))
+            .filter((date: string) => map2.has(date))
             .sort();
 
         if (commonDates.length === 0) {
@@ -56,7 +80,7 @@ export async function POST(request: Request) {
         const ratios: number[] = [];
 
         // Prepare aligned data arrays
-        const alignedData = commonDates.map(date => {
+        const alignedData = commonDates.map((date: string) => {
             const d1 = map1.get(date)!;
             const d2 = map2.get(date)!;
 
@@ -81,7 +105,7 @@ export async function POST(request: Request) {
 
         // Calculate Spread
         // Spread = (Stock2 * Factor) - Stock1
-        const spreadData = alignedData.map(item => {
+        const spreadData = alignedData.map((item: { date: string, d1: Quote, d2: Quote }) => {
             const { date, d1, d2 } = item;
 
             const s2_open = d2.open;

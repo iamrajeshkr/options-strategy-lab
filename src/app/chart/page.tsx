@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
-import SpreadChart from "@/components/SpreadChart";
+import InteractiveChart from "@/components/InteractiveChart";
 import { Loader2 } from "lucide-react";
 
 function ChartContent() {
@@ -11,6 +11,7 @@ function ChartContent() {
     const stock2 = searchParams.get("stock2");
     const start = searchParams.get("start");
     const end = searchParams.get("end");
+    const interval = searchParams.get("interval") || "1d";
 
     const [loading, setLoading] = useState(true);
     const [result, setResult] = useState<any>(null);
@@ -33,6 +34,7 @@ function ChartContent() {
                         stock2,
                         startDate: start,
                         endDate: end,
+                        interval,
                     }),
                 });
                 const data = await res.json();
@@ -46,7 +48,7 @@ function ChartContent() {
         };
 
         fetchData();
-    }, [stock1, stock2, start, end]);
+    }, [stock1, stock2, start, end, interval]);
 
     if (loading) {
         return (
@@ -67,7 +69,7 @@ function ChartContent() {
     return (
         <div className="w-full h-screen bg-black p-4">
             {result && result.spreadData ? (
-                <SpreadChart
+                <InteractiveChart
                     data={result.spreadData}
                     title={`Spread: (${result.ticker2} × ${result.scalingFactor.toFixed(2)}) - ${result.ticker1}`}
                 />
